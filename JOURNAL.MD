@@ -70,3 +70,35 @@ Added `RateLimitMiddleware` (`api/middleware/rate_limit.py`), wired into `api/ma
 (Both pass in the sense the assignment defines for a codebase with documented pre-existing issues: `main` already has 53 pre-existing unit test failures and ~182 pre-existing lint errors unrelated to this issue, in files this PR doesn't touch. Verified before and after — counts are identical; this PR adds 5 new passing tests and zero new lint/type errors, confirmed against the actual `pre-commit` hook.)
 
 **Draft PR feedback received from:** None yet — requested review in the class Slack channel, awaiting response.
+
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [X] No — still awaiting review
+
+**Summary of feedback:**
+No comments or reviews landed on [#751](https://github.com/ascherj/pathreview/pull/751) by the Week 10 deadline — checked directly against the PR (`gh pr view 751`) rather than assuming from memory, and both the comments and reviews lists are empty. I posted in the class Slack channel back in Week 9 asking for a look but didn't get a response in time.
+
+**How you responded:**
+Since there was no feedback to respond to, I used the week to re-review my own PR with fresh eyes instead of leaving it idle. I re-read the diff end to end, re-ran `make check` and `make test-unit` against current `main` to confirm the pre-existing-failure counts I documented in Week 9 (53 unit failures, ~182 lint errors) hadn't drifted, and re-confirmed the middleware ordering rationale (before `CORSMiddleware`, so a 429 still carries CORS headers) still holds. No code changes were necessary — the PR still describes the header, but I'd take a substantive comment as a real prompt to revise, not just close out the assignment.
+
+---
+
+### Reflection
+
+**What was harder than you expected?**
+Establishing ground truth about the codebase's *existing* state was harder than actually writing the fix. Before I could trust that adding `RateLimitMiddleware` was correct, I had to grep for every caller of `RateLimiter`/`check_rate_limit` to confirm no request — authenticated or not — was ever being throttled. That single check in Week 9 changed the scope of the fix: the issue title only asked for per-IP limiting, but the per-user path was silently broken too, so an IP-only patch would have shipped a fix that looked complete but left half the bug in place. I underestimated how much of "solving an issue" in an existing codebase is actually verifying the issue's premise rather than trusting the title.
+
+**What did you learn about working in a large codebase?**
+The biggest difference from a solo project is that correctness isn't just "does my code do what I intended" — it's "does my code interact correctly with everything already there, including the parts that are already broken." I had to separate pre-existing failures (53 unit test failures, ~182 lint errors unrelated to my change) from anything I introduced, and prove that distinction with before/after counts rather than assert it. I also learned that tooling itself can lie about correctness in subtle ways — the `pre-commit` hook's isolated mypy environment (just `mypy` + `types-redis`, no `fastapi`/`starlette`) type-checked differently than running mypy inside the full project venv, so "it passes locally" and "it passes the actual gate that matters" turned out to be two different claims I had to check separately.
+
+**How did AI tools help — and where did they fall short?**
+AI assistance was most useful for the mechanical, high-recall work: grepping across the codebase for every call site of a function, drafting the middleware skeleton against the existing `RequestIDMiddleware` pattern, and generating the initial spread of unit test cases (IP-only, IP+user, either layer over limit, invalid-token fallback) once I'd defined the behavior. It fell short on the judgment calls that actually mattered: deciding that the issue's stated scope (per-IP only) was insufficient once I found the per-user gap, deciding where in the middleware stack the rate limiter needed to sit relative to CORS so a 429 still carried the right headers, and deciding to explicitly defer the `X-Forwarded-For` trust question rather than quietly trusting a spoofable header. Those required reasoning about this specific production system's trust boundaries, not pattern-matching to a template.
+
+**What would you do differently if you started over?**
+I'd try to get eyes on the PR earlier than Week 9 — posting in Slack the same week I opened the draft rather than waiting until it was feature-complete, so there was more runway for a review cycle to actually close before the module ended. I'd also write the Week 8 reproduction test and the root-cause grep in the same sitting; I did the grep afterward almost by accident while re-verifying the issue, and it should have been step one of reproduction, not a gut-check I ran near the end.
+
+**What are you most proud of from this module?**
+Catching that the per-user rate limiting was also silently unwired before writing any fix code. It would have been easy to implement exactly what the issue title said, pass my own tests, and open a PR that technically closed the ticket while leaving a real gap in production. Slowing down to verify the premise instead of the request is the habit I most want to carry out of this module.
